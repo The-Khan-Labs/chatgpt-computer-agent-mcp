@@ -1,0 +1,121 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: 1.27.0
+          cache: true
+      - name: Verify toolchain
+        run: test "$(go version)" = "go version go1.27.0 linux/amd64"
+      - name: Install ripgrep
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ripgrep
+      - name: Full repository check
+        run: ./scripts/check.sh
+
+  native:
+    name: Native ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-amd64
+            runner: ubuntu-24.04
+            race: true
+          - name: windows-amd64
+            runner: windows-2025
+            race: true
+          - name: darwin-amd64
+            runner: macos-15-intel
+            race: true
+          - name: darwin-arm64
+            runner: macos-15
+            race: false
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: 1.27.0
+          cache: true
+      - name: Native tests
+        run: go test ./...
+      - name: Race tests
+        if: matrix.race
+        run: go test -race ./...
+      - name: Vet
+        run: go vet ./...
+
+  secret-scan:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  release-build:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [quality, native, secret-scan]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: 1.27.0
+          cache: true
+      - name: Verify tagged SHA
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Build six release targets
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: ./scripts/build-release.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-${{ github.ref_name }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [quality, native, secret-scan, release-build]
+    permissions:
+      actions: read
+      contents: write
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: release-${{ github.ref_name }}
+          path: dist
+      - uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        with:
+          files: dist/*
+          fail_on_unmatched_files: true

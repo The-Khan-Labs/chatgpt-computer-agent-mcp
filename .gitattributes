@@ -1,0 +1,2 @@
+# Pin LF so Windows checkouts with core.autocrlf=true still match gofmt and POSIX scripts.
+* text=auto eol=lf

@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "mode": "readonly",
+  "roots": [
+    {
+      "name": "workspace",
+      "path": "/absolute/path/to/an/approved/directory"
+    }
+  ],
+  "limits": {
+    "max_read_bytes": 1048576,
+    "max_write_bytes": 2097152,
+    "default_command_timeout_seconds": 120,
+    "max_command_timeout_seconds": 600,
+    "max_output_bytes_per_stream": 1048576,
+    "max_background_processes": 8,
+    "process_stop_grace_seconds": 2
+  }
+}
